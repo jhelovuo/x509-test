@@ -143,7 +143,7 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
         println!("{cert:?}\n");
 
         println!("Verifying in Rust");
-        cert.verify_signed_data(content, signer_info.signature.as_bytes()).unwrap();
+        cert.verify_signed_data(content, &some_sig).unwrap();
         println!("Verification ok");
       }
       _  => panic!("Expected two subparts"),
