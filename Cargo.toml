@@ -1,0 +1,12 @@
+[package]
+name = "x509-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mailparse = "0.6" # for reading S/MIME-encoded (XML) config files
+x509-certificate = "0.21"
+tempfile = "3"
+pem = "*"
