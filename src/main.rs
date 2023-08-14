@@ -3,6 +3,8 @@ use std::io::{Write, Read, Seek, SeekFrom};
 use std::process::Command;
 
 use x509_certificate::certificate::{CapturedX509Certificate};
+use cms::signed_data::{SignedData,EncapsulatedContentInfo,};
+use der::Decode;
 
 fn main() {
     let document = r#"MIME-Version: 1.0
@@ -100,7 +102,7 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
             .output()
             .unwrap();
 
-    println!("openssl: {}", 
+    println!("openssl: {}\n", 
         String::from_utf8_lossy(&openssl_output.stderr));
 
 
@@ -112,17 +114,36 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
       [doc_content, signature] => {
         let content = doc_content.get_body_raw().unwrap();
         let signature_der = signature.get_body_raw().unwrap();
-        //let signature_pem = 
-        //    pem::encode(&pem::Pem::new("CERTIFICATE", signature_der.clone()));
+
+        let signature_encap = 
+            EncapsulatedContentInfo::from_der(&signature_der).unwrap();
+        let signature_oid = const_oid::ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.2");
+        assert!(signature_encap.econtent_type == signature_oid);
+        // it is a signature
+        let signed_data = match signature_encap.econtent {
+          None => panic!("Empty signature container??"),
+          Some(sig) =>
+            sig.decode_as::<SignedData>().unwrap()
+        };
+
+        let signer_info = signed_data.signer_infos.0.get(0).unwrap();
+        println!("Signer_Info: {:?}\n", signer_info);
+
+        let some_sig = hex_literal::hex!(
+        "   3e 47 8a e5 ce 71 f7 07 82 59 dd 2a 1d c1 97 a9
+            28 2c fe 11 69 f1 6c 9e ea a1 b5 13 ea 02 57 06 
+
+            78 78 64 d9 8a 7f f5 d6 b0 7f 38 98 79 66 7d 4e
+            50 9c 4f 88 59 c4 16 84 36 47 c1 41 b9 76 57 3f");
                 
 
         let cert = CapturedX509Certificate::from_pem(cert_pem).unwrap();
 
         //println!("{signature_pem:?}");
-        println!("{cert:?}");
+        println!("{cert:?}\n");
 
         println!("Verifying in Rust");
-        cert.verify_signed_data(content, signature_der).unwrap();
+        cert.verify_signed_data(content, signer_info.signature.as_bytes()).unwrap();
         println!("Verification ok");
       }
       _  => panic!("Expected two subparts"),
