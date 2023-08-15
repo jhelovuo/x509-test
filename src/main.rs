@@ -1,18 +1,24 @@
-use std::fs::File;
-use std::io::{Write, Read, Seek, SeekFrom};
+use std::io::Write;
 use std::process::Command;
 
 use x509_certificate::certificate::{CapturedX509Certificate};
 use cms::signed_data::{SignedData,EncapsulatedContentInfo,};
 use der::Decode;
 
+use ring::signature;
+
+use similar::TextDiff;
+
 fn main() {
+
+    // 
+
     let document = r#"MIME-Version: 1.0
-Content-Type: multipart/signed; protocol="application/x-pkcs7-signature"; micalg="sha-256"; boundary="----26B97E9080C33B5E9E82D8FDC0946E23"
+Content-Type: multipart/signed; protocol="application/x-pkcs7-signature"; micalg="sha-256"; boundary="----F829CEB469DB45AAA9B96DE7DBD3C46C"
 
 This is an S/MIME signed message
 
-------26B97E9080C33B5E9E82D8FDC0946E23
+------F829CEB469DB45AAA9B96DE7DBD3C46C
 Content-Type: text/plain
 
 <?xml version="1.0" encoding="utf-8"?>
@@ -50,7 +56,7 @@ xsi:noNamespaceSchemaLocation="http://www.omg.org/spec/DDS-Security/20170801/omg
   </domain_access_rules>
 </dds>
 
-------26B97E9080C33B5E9E82D8FDC0946E23
+------F829CEB469DB45AAA9B96DE7DBD3C46C
 Content-Type: application/x-pkcs7-signature; name="smime.p7s"
 Content-Transfer-Encoding: base64
 Content-Disposition: attachment; filename="smime.p7s"
@@ -65,14 +71,15 @@ Af8CAQEwCgYIKoZIzj0EAwIDSAAwRQIgEiyVGRc664+/TE/HImA4WNwsSi/alHqP
 YB58BWINj34CIQDDiHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqzGCAX4w
 ggF6AgEBMCowEjEQMA4GA1UEAwwHc3JvczJDQQIUd+te/Ov6lT3yVlg8OFoOXJiV
 MAUwDQYJYIZIAWUDBAIBBQCggeQwGAYJKoZIhvcNAQkDMQsGCSqGSIb3DQEHATAc
-BgkqhkiG9w0BCQUxDxcNMjMwODE0MDc1NDQxWjAvBgkqhkiG9w0BCQQxIgQgvAEn
+BgkqhkiG9w0BCQUxDxcNMjMwODE1MTIyNDI5WjAvBgkqhkiG9w0BCQQxIgQgvAEn
 eveae5s8eNw0HdhAcxPkLpHI3cdiMLrX5U6hwNoweQYJKoZIhvcNAQkPMWwwajAL
 BglghkgBZQMEASowCwYJYIZIAWUDBAEWMAsGCWCGSAFlAwQBAjAKBggqhkiG9w0D
 BzAOBggqhkiG9w0DAgICAIAwDQYIKoZIhvcNAwICAUAwBwYFKw4DAgcwDQYIKoZI
-hvcNAwICASgwCgYIKoZIzj0EAwIERzBFAiAZQGxjfAoLlk99UWV5AYkHr1CGvOrn
-X/iBDEnMibF4NAIhAPB45KRXnnC8QmjYByycsOo4uGDrrUZ4K+tWLBfOv8v9
+hvcNAwICASgwCgYIKoZIzj0EAwIERzBFAiAPZrU1Lb9q0q3sJXhJXsgB2X126Ays
+fR/9Ru33iDhguAIhAIfqXvklH3HzFYnnthdHdyccBfqx09IY0x0ZRPDetB03
 
-------26B97E9080C33B5E9E82D8FDC0946E23--
+------F829CEB469DB45AAA9B96DE7DBD3C46C--
+
 "#;
     let cert_pem = r#"-----BEGIN CERTIFICATE-----
 MIIBOzCB4qADAgECAhR361786/qVPfJWWDw4Wg5cmJUwBTAKBggqhkjOPQQDAjAS
@@ -85,6 +92,7 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
 -----END CERTIFICATE-----
 "#;
 
+
     // First, use OpenSSL to ensure input is sane.
     let mut doc_file = tempfile::NamedTempFile::new().unwrap();
     doc_file.write_all(document.as_bytes()).unwrap();
@@ -95,7 +103,7 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
 
     let openssl_output = 
         Command::new("openssl")
-            .args(["smime", "-verify", "-text",  "-in"])
+            .args(["smime", "-verify", "-text", "-in"])
             .arg(doc_file.path())
             .arg("-CAfile")
             .arg(cert_file.path())
@@ -112,8 +120,19 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
 
     match parsed_s_mime.subparts.as_slice() {
       [doc_content, signature] => {
+
         let content = doc_content.get_body_raw().unwrap();
         let signature_der = signature.get_body_raw().unwrap();
+
+        // let c = String::from_utf8_lossy( &content );
+        // let o = String::from_utf8_lossy( &openssl_output.stdout);
+        // let diff = TextDiff::from_lines( &c, &o );
+        // println!("-- contents diff:");
+        // for c in diff.iter_all_changes() {
+        //     println!("{c:?}");
+        // }
+        // println!("-- contents diff end");
+        // assert!(content == openssl_output.stdout);
 
         let signature_encap = 
             EncapsulatedContentInfo::from_der(&signature_der).unwrap();
@@ -127,23 +146,26 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
         };
 
         let signer_info = signed_data.signer_infos.0.get(0).unwrap();
-        println!("Signer_Info: {:?}\n", signer_info);
+        //println!("Signer_Info: {:?}\n", signer_info);
 
-        let some_sig = hex_literal::hex!(
-        "   3e 47 8a e5 ce 71 f7 07 82 59 dd 2a 1d c1 97 a9
-            28 2c fe 11 69 f1 6c 9e ea a1 b5 13 ea 02 57 06 
-
-            78 78 64 d9 8a 7f f5 d6 b0 7f 38 98 79 66 7d 4e
-            50 9c 4f 88 59 c4 16 84 36 47 c1 41 b9 76 57 3f");
-                
+        let sig_data = signer_info.signature.as_bytes();      
 
         let cert = CapturedX509Certificate::from_pem(cert_pem).unwrap();
 
-        //println!("{signature_pem:?}");
-        println!("{cert:?}\n");
+        println!("signature data: {sig_data:?}\n");
+        //println!("{cert:?}\n");
+        //println!("content: :{}:\n", String::from_utf8_lossy(&content));
 
         println!("Verifying in Rust");
-        cert.verify_signed_data(content, &some_sig).unwrap();
+
+        //cert.verify_signed_data(content, sig_data)
+        //    .unwrap();
+
+        // Force using P256, because that is what OpenSSL claims the
+        // certificate to use.
+        cert.verify_signed_data_with_algorithm(content, sig_data,
+             &signature::ECDSA_P256_SHA256_ASN1)
+             .unwrap();
         println!("Verification ok");
       }
       _  => panic!("Expected two subparts"),

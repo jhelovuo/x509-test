@@ -7,9 +7,13 @@ edition = "2021"
 
 [dependencies]
 mailparse = "0.6" # for reading S/MIME-encoded (XML) config files
-x509-certificate = "0.21"
+x509-certificate = {path = "../cryptography-rs/x509-certificate"} 
+# "0.21"
 tempfile = "3"
 cms = "0.2.2"
 const-oid = "*"
 der = "*"
 hex-literal = "*"
+ring = "*"
+similar = "*"
+newline-converter= "0.3"
