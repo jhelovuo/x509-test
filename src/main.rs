@@ -121,18 +121,25 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
     match parsed_s_mime.subparts.as_slice() {
       [doc_content, signature] => {
 
-        let content = doc_content.get_body_raw().unwrap();
+        let mut content = doc_content.get_body_raw().unwrap();
+
+        // to remove extra newline at end
+        content.pop();
+
+        let newline = regex::bytes::Regex::new("\n").unwrap();
+        let content = newline.replace_all(&content, b"\r\n").into_owned();
+
         let signature_der = signature.get_body_raw().unwrap();
 
-        // let c = String::from_utf8_lossy( &content );
-        // let o = String::from_utf8_lossy( &openssl_output.stdout);
-        // let diff = TextDiff::from_lines( &c, &o );
-        // println!("-- contents diff:");
-        // for c in diff.iter_all_changes() {
-        //     println!("{c:?}");
-        // }
-        // println!("-- contents diff end");
-        // assert!(content == openssl_output.stdout);
+        let c = String::from_utf8_lossy( &content );
+        let o = String::from_utf8_lossy( &openssl_output.stdout);
+        let diff = TextDiff::from_lines( &c, &o );
+        println!("-- contents diff:");
+        for c in diff.iter_all_changes() {
+            println!("{c:?}");
+        }
+        println!("-- contents diff end");
+        //assert!(content == openssl_output.stdout);
 
         let signature_encap = 
             EncapsulatedContentInfo::from_der(&signature_der).unwrap();
