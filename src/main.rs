@@ -3,15 +3,14 @@ use std::process::Command;
 
 use x509_certificate::certificate::{CapturedX509Certificate};
 use cms::signed_data::{SignedData,EncapsulatedContentInfo,};
+use cms::attr::MessageDigest;
 use der::Decode;
 
 use ring::{signature, digest};
 
-use similar::TextDiff;
+use similar::{TextDiff, ChangeTag};
 
 fn main() {
-
-    // 
 
     let document = r#"MIME-Version: 1.0
 Content-Type: multipart/signed; protocol="application/x-pkcs7-signature"; micalg="sha-256"; boundary="----F829CEB469DB45AAA9B96DE7DBD3C46C"
@@ -103,7 +102,7 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
 
     let openssl_output = 
         Command::new("openssl")
-            .args(["smime", "-verify", "-text", "-in"])
+            .args(["smime", "-verify", /*"-text",*/ "-in"])
             .arg(doc_file.path())
             .arg("-CAfile")
             .arg(cert_file.path())
@@ -121,11 +120,12 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
     match parsed_s_mime.subparts.as_slice() {
       [doc_content, signature] => {
 
-        let mut content = doc_content.get_body_raw().unwrap();
+        let mut content = Vec::<u8>::from(doc_content.raw_bytes);
 
-        // to remove extra newline at end
+        // to remove extra newline at end. mailparse seems to add this.
         content.pop();
 
+        // OpenSSL has converted to MS-DOS line endings when MIME encoding.
         let newline = regex::bytes::Regex::new("\n").unwrap();
         let content = newline.replace_all(&content, b"\r\n").into_owned();
 
@@ -137,11 +137,14 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
             let diff = TextDiff::from_lines( &c, &o );
             println!("-- contents diff:");
             for c in diff.iter_all_changes() {
-                println!("{c:?}");
+                if c.tag() != ChangeTag::Equal {
+                    println!("{c:?}");
+                }
             }
             println!("-- contents diff end");
         }
-        println!("contents digest: {:?}", digest::digest(&digest::SHA256, &content));
+        let contents_digest = digest::digest(&digest::SHA256, &content);
+        println!("computed contents digest: {:?}", contents_digest);
 
         let signature_der = signature.get_body_raw().unwrap();
 
@@ -157,27 +160,43 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
         };
 
         let signer_info = signed_data.signer_infos.0.get(0).unwrap();
-        println!("Signer_Info: {:?}\n", signer_info);
+        //println!("Signer_Info: {:?}\n", signer_info);
 
-        let sig_data = signer_info.signature.as_bytes();      
+        let message_digest = 
+            match &signer_info.signed_attrs {
+                None => panic!("Signature has no signed_attrs"),
+                Some(sas) => {
+                    match sas.iter().find(|attr| attr.oid == 
+                      const_oid::ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.4")) {
+                        None => panic!("No message digest in signature"),
+                        Some(attr) => attr.values.get(0).unwrap().decode_as::<MessageDigest>().unwrap(),
+                    }
+                }
+            };
+        println!("signature message_digest = {:02x?}",message_digest.as_bytes() );
+
+        // check that the hash in signature matches value computed from content
+        assert_eq!(message_digest.as_bytes(), contents_digest.as_ref());
+
+        let sig_bytes = signer_info.signature.as_bytes();      
+        println!("signature ASN.1 data: {sig_bytes:?}\n");
+
 
         let cert = CapturedX509Certificate::from_pem(cert_pem).unwrap();
-
-        println!("signature data: {sig_data:?}\n");
         //println!("{cert:?}\n");
-        //println!("content: :{}:\n", String::from_utf8_lossy(&content));
 
-        println!("Verifying in Rust");
+        println!("Verifying with x509-certificate");
 
-        //cert.verify_signed_data(content, sig_data)
-        //    .unwrap();
-
-        // Force using P256, because that is what OpenSSL claims the
-        // certificate to use.
-        cert.verify_signed_data_with_algorithm(content, sig_data,
-             &signature::ECDSA_P256_SHA256_ASN1)
-             .unwrap();
-        println!("Verification ok");
+        // Force using elliptic curve P256, because that is what OpenSSL claims the
+        // certificate to use. 
+        //      algorithm: id-ecPublicKey (1.2.840.10045.2.1)
+        //      parameter: OBJECT:prime256v1 (1.2.840.10045.3.1.7)
+        // It seems that x509-certificate auto-detection 
+        // just defaults to P384.
+        let verify_result =
+         cert.verify_signed_data_with_algorithm(&content, sig_bytes,
+             &signature::ECDSA_P256_SHA256_ASN1);
+        println!("verify_result = {verify_result:?}");
       }
       _  => panic!("Expected two subparts"),
     }
