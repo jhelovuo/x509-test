@@ -5,7 +5,7 @@ use x509_certificate::certificate::{CapturedX509Certificate};
 use cms::signed_data::{SignedData,EncapsulatedContentInfo,};
 use der::Decode;
 
-use ring::signature;
+use ring::{signature, digest};
 
 use similar::TextDiff;
 
@@ -129,17 +129,21 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
         let newline = regex::bytes::Regex::new("\n").unwrap();
         let content = newline.replace_all(&content, b"\r\n").into_owned();
 
-        let signature_der = signature.get_body_raw().unwrap();
-
-        let c = String::from_utf8_lossy( &content );
-        let o = String::from_utf8_lossy( &openssl_output.stdout);
-        let diff = TextDiff::from_lines( &c, &o );
-        println!("-- contents diff:");
-        for c in diff.iter_all_changes() {
-            println!("{c:?}");
+        if content == openssl_output.stdout {
+            println!("Contents match");
+        } else {
+            let c = String::from_utf8_lossy( &content );
+            let o = String::from_utf8_lossy( &openssl_output.stdout);
+            let diff = TextDiff::from_lines( &c, &o );
+            println!("-- contents diff:");
+            for c in diff.iter_all_changes() {
+                println!("{c:?}");
+            }
+            println!("-- contents diff end");
         }
-        println!("-- contents diff end");
-        //assert!(content == openssl_output.stdout);
+        println!("contents digest: {:?}", digest::digest(&digest::SHA256, &content));
+
+        let signature_der = signature.get_body_raw().unwrap();
 
         let signature_encap = 
             EncapsulatedContentInfo::from_der(&signature_der).unwrap();
@@ -153,7 +157,7 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
         };
 
         let signer_info = signed_data.signer_infos.0.get(0).unwrap();
-        //println!("Signer_Info: {:?}\n", signer_info);
+        println!("Signer_Info: {:?}\n", signer_info);
 
         let sig_data = signer_info.signature.as_bytes();      
 
