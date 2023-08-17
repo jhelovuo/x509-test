@@ -12,7 +12,7 @@ mailparse = "0.14" # for reading S/MIME-encoded (XML) config files
 x509-certificate = "0.21"
 
 tempfile = "3"
-cms = "0.2.2"
+cms = { version = "0.2.2", features = ["alloc"] }
 const-oid = "*"
 der = "*"
 hex-literal = "*"

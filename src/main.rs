@@ -4,7 +4,7 @@ use std::process::Command;
 use x509_certificate::certificate::{CapturedX509Certificate};
 use cms::signed_data::{SignedData,EncapsulatedContentInfo,};
 use cms::attr::MessageDigest;
-use der::Decode;
+use der::{Encode,Decode};
 
 use ring::{signature, digest};
 
@@ -150,7 +150,10 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
 
         let signature_encap = 
             EncapsulatedContentInfo::from_der(&signature_der).unwrap();
-        let signature_oid = const_oid::ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.2");
+        let signature_oid = const_oid::ObjectIdentifier::
+            new_unwrap("1.2.840.113549.1.7.2"); 
+            // The SignedData type is defined in RFC 5652 Section 5.1.
+            // OpenSSL calls this "pkcs7-signedData (1.2.840.113549.1.7.2)"
         assert!(signature_encap.econtent_type == signature_oid);
         // it is a signature
         let signed_data = match signature_encap.econtent {
@@ -162,14 +165,17 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
         let signer_info = signed_data.signer_infos.0.get(0).unwrap();
         //println!("Signer_Info: {:?}\n", signer_info);
 
-        let message_digest = 
+        let (message_digest, bytes_to_digest) = 
             match &signer_info.signed_attrs {
                 None => panic!("Signature has no signed_attrs"),
                 Some(sas) => {
+                    println!("signed_attrs bytes={:02x?}\ndebug=\n{:?}",sas.to_der(), sas );
                     match sas.iter().find(|attr| attr.oid == 
                       const_oid::ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.4")) {
                         None => panic!("No message digest in signature"),
-                        Some(attr) => attr.values.get(0).unwrap().decode_as::<MessageDigest>().unwrap(),
+                        Some(attr) => 
+                            ( attr.values.get(0).unwrap().decode_as::<MessageDigest>().unwrap(),
+                              sas.to_der().unwrap() ),
                     }
                 }
             };
@@ -194,7 +200,7 @@ iHhbVPRB9Uxts9CwglxYgZoUdGUAxreYIIaLO4yLqw==
         // It seems that x509-certificate auto-detection 
         // just defaults to P384.
         let verify_result =
-         cert.verify_signed_data_with_algorithm(&content, sig_bytes,
+         cert.verify_signed_data_with_algorithm(&bytes_to_digest, sig_bytes,
              &signature::ECDSA_P256_SHA256_ASN1);
         println!("verify_result = {verify_result:?}");
       }
